@@ -13,6 +13,7 @@ from typing import List, Optional, Set, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 from nonebot import logger, on_message, require
+from nonebot.permission import SUPERUSER
 from nonebot.adapters.onebot.v11 import (
     Bot,
     Event,
@@ -446,6 +447,31 @@ def _build_format_candidates(height_limit: int, size_limit_mb: int) -> List[str]
     # 默认格式
     return ["bv*+ba/best"]
 
+def format_selector(ctx):
+    """ Select the best video and the best audio that won't result in an mkv.
+    NOTE: This is just an example and does not handle all cases """
+
+    # formats are already sorted worst to best
+    formats = ctx.get('formats')[::-1]
+
+    # acodec='none' means there is no audio
+    best_video = next(f for f in formats
+                      if f['vcodec'] != 'none' and f['vcodec'] != 'av01.0.00M.10.0.110.01.01.01.0' and f['acodec'] == 'none')
+
+    # find compatible audio extension
+    audio_ext = {'mp4': 'm4a', 'webm': 'webm'}[best_video['ext']]
+    # vcodec='none' means there is no video
+    best_audio = next(f for f in formats if (
+        f['acodec'] != 'none' and f['vcodec'] == 'none' and f['ext'] == audio_ext))
+
+    # These are the minimum required fields for a merged format
+    yield {
+        'format_id': f'{best_video["format_id"]}+{best_audio["format_id"]}',
+        'ext': best_video['ext'],
+        'requested_formats': [best_video, best_audio],
+        # Must be + separated list of protocols
+        'protocol': f'{best_video["protocol"]}+{best_audio["protocol"]}'
+    }
 
 def _download_with_ytdlp(
     url: str, cookie: str, out_dir, height_limit: int, size_limit_mb: int
@@ -471,12 +497,13 @@ def _download_with_ytdlp(
     for i, fmt in enumerate(candidates):
         headers = _build_browser_like_headers()
         ydl_opts = {
-            "format": fmt,
+            "format": format_selector,
             "outtmpl": str(out_dir / "%(title).80s [%(id)s].%(ext)s"),
             "noplaylist": True,
             "merge_output_format": "mp4",
             "quiet": False,
             "no_warnings": False,
+            "max_filesize" : size_limit_mb*1024*1024,  # MB in bytes
             "http_headers": headers,
             "extractor_args": {
                 "bili": {
@@ -696,12 +723,9 @@ group_listener = on_message(priority=100, block=False)
 
 
 @group_listener.handle()
-async def handle_group(bot: Bot, event: Event):
+async def handle_group(bot: Bot, event: GroupMessageEvent):
     try:
         _init_plugin()
-
-        if not isinstance(event, GroupMessageEvent):
-            return
 
         group_id = int(event.group_id)
         if group_id not in enabled_groups:
@@ -734,15 +758,12 @@ async def handle_group(bot: Bot, event: Event):
 
 
 # 私聊控制
-ctrl_listener = on_message(priority=50, block=False)
+ctrl_listener = on_message(priority=50, permission=SUPERUSER, block=False)
 
 
 @ctrl_listener.handle()
-async def handle_private(bot: Bot, event: Event):
+async def handle_private(bot: Bot, event: PrivateMessageEvent):
     _init_plugin()
-
-    if not isinstance(event, PrivateMessageEvent):
-        return
 
     try:
         uid = int(event.user_id)
