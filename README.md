@@ -114,7 +114,7 @@ ffmpeg_path = "/usr/local/bin"
 
 | 配置项 | 必填 | 默认值 | 说明 |
 |:-----:|:----:|:----:|:----:|
-| super_admins | 是 | [] | 管理员QQ号列表 |
+| bili_super_admins | 是 | [] | 管理员QQ号列表，格式：[(int)] |
 | ffmpeg_path | 否 | [] | FFmpeg的路径，如果为空则自动从PATH中查找 |
 
 ## 🎉 使用
